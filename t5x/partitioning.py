@@ -868,6 +868,10 @@ class PjitPartitioner(BasePjitPartitioner):
 
     return PjittedFnWithContext(pjitted, self.mesh, self._logical_axis_rules)
 
+  def get_logical_axis_rules(self):
+    """Returns the logical axis rules."""
+    return self._logical_axis_rules
+
   def get_logical_axes(self, train_state: TrainState) -> TrainState:
     """Returns a copy of TrainState with Optional[AxisNames] as leaves."""
     return train_state.as_logical_axes()
