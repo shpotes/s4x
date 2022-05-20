@@ -30,9 +30,10 @@ python -m t5x.main \
   --run_mode=train \
   --logtostderr
 """
+import concurrent.futures  # pylint:disable=unused-import
 import enum
 import os
-from typing import Sequence
+from typing import Any, Optional, Sequence
 
 from absl import app
 from absl import flags
@@ -47,7 +48,6 @@ from t5x import infer as infer_lib
 from t5x import precompile as precompile_lib
 from t5x import train as train_lib
 from t5x import utils
-
 
 
 @enum.unique
@@ -81,6 +81,13 @@ _TFDS_DATA_DIR = flags.DEFINE_string(
     'TensorFlow Datasets that are not available in the public TFDS GCS '
     'bucket. Note that this flag overrides the `tfds_data_dir` attribute of '
     'all `Task`s.')
+
+# Only works with infer mode.
+_SHARD_ID = flags.DEFINE_integer(
+    'shard_id',
+    default=None,
+    help='Index to use for splitting the Task across multiple inference '
+    'runs. NB: If set, this overrides --gin.infer.shard_id')
 
 _DRY_RUN = flags.DEFINE_bool(
     'dry_run', False,
@@ -126,7 +133,28 @@ def main(argv: Sequence[str]):
     return
 
   run_with_gin = gin.get_configurable(_FUNC_MAP[_RUN_MODE.value])
-  run_with_gin()
+
+  def _get_gin_parameter(key: str) -> Any:
+    value = gin.query_parameter(key)
+    if isinstance(value, gin.config.ConfigurableReference):
+      if value.evaluate:
+        return value.scoped_configurable_fn()
+      return value.scoped_configurable_fn
+    return value
+
+  extra_kwags = {}
+  if _RUN_MODE.value == RunMode.INFER:
+    shard_id = _SHARD_ID.value or _get_gin_parameter('infer.shard_id')
+    if shard_id == 0:
+      gin_utils.summarize_gin_config(
+          model_dir=_get_gin_parameter('infer.output_dir'),
+          summary_writer=None,
+          step=0)
+    if _SHARD_ID.value is not None:
+      extra_kwags.update({'shard_id': shard_id})
+
+  run_with_gin(**extra_kwags)
+
 
 
 def _flags_parser(args: Sequence[str]) -> Sequence[str]:
